@@ -26,18 +26,26 @@ def _ensure_schema() -> None:
     """Additive migration for SQLite: add columns introduced after a DB already
     existed. create_all() handles brand-new tables; this covers new columns."""
     inspector = inspect(engine)
-    if "aws_accounts" not in inspector.get_table_names():
-        return
-    existing = {c["name"] for c in inspector.get_columns("aws_accounts")}
-    additions = {
-        "access_key_id": "VARCHAR",
-        "secret_access_key": "VARCHAR",
-        "session_token": "TEXT",
+    tables = set(inspector.get_table_names())
+    per_table = {
+        "aws_accounts": {
+            "access_key_id": "VARCHAR",
+            "secret_access_key": "VARCHAR",
+            "session_token": "TEXT",
+        },
+        "monitored_resources": {
+            "group_name": "VARCHAR",
+            "collect_options": "JSON",
+        },
     }
     with engine.begin() as conn:
-        for col, coltype in additions.items():
-            if col not in existing:
-                conn.execute(text(f"ALTER TABLE aws_accounts ADD COLUMN {col} {coltype}"))
+        for table, additions in per_table.items():
+            if table not in tables:
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table)}
+            for col, coltype in additions.items():
+                if col not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}"))
 
 
 Base.metadata.create_all(bind=engine)

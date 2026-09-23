@@ -23,6 +23,7 @@ def collect_resource(resource: MonitoredResource, account: AwsAccount) -> Resour
         identifier=resource.identifier,
         display_name=resource.display_name,
         region=region,
+        group_name=resource.group_name,
         collected_at=datetime.utcnow(),
     )
 
@@ -55,8 +56,16 @@ def collect_resource(resource: MonitoredResource, account: AwsAccount) -> Resour
             base.error = f"{type(exc).__name__}: {exc}"
             return base
 
+    # Health is computed from the full data; display is filtered to the signals
+    # the user selected (None = show everything).
     base.status = data.get("status", "unknown")
     base.summary = data.get("summary", "")
-    base.metrics = data.get("metrics", {})
-    base.details = data.get("details", {})
+    metrics = data.get("metrics", {})
+    details = data.get("details", {})
+    selected = resource.collect_options
+    if selected is not None:
+        metrics = {k: v for k, v in metrics.items() if k in selected}
+        details = {k: v for k, v in details.items() if k in selected}
+    base.metrics = metrics
+    base.details = details
     return base

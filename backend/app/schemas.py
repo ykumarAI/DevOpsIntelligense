@@ -117,6 +117,9 @@ class MonitoredResourceBase(BaseModel):
     identifier: str = Field(..., min_length=1, max_length=256)
     display_name: Optional[str] = None
     region: Optional[str] = None
+    group_name: Optional[str] = None
+    # Signal keys to display; None = collect everything.
+    collect_options: Optional[list[str]] = None
     enabled: bool = True
     notes: Optional[str] = None
 
@@ -130,6 +133,8 @@ class MonitoredResourceUpdate(BaseModel):
     identifier: Optional[str] = Field(default=None, min_length=1, max_length=256)
     display_name: Optional[str] = None
     region: Optional[str] = None
+    group_name: Optional[str] = None
+    collect_options: Optional[list[str]] = None
     enabled: Optional[bool] = None
     notes: Optional[str] = None
 
@@ -150,6 +155,7 @@ class ResourceStatus(BaseModel):
     identifier: str
     display_name: Optional[str] = None
     region: Optional[str] = None
+    group_name: Optional[str] = None
     status: Literal["healthy", "warning", "critical", "unknown"] = "unknown"
     summary: str = ""
     metrics: dict[str, Any] = {}
@@ -157,6 +163,9 @@ class ResourceStatus(BaseModel):
     source: Literal["mock", "aws", "gitlab"] = "mock"
     error: Optional[str] = None
     collected_at: datetime
+    # Real recorded history of the primary metric (oldest -> newest), if any.
+    history: list[float] = []
+    history_metric: Optional[str] = None
 
 
 class DashboardSummary(BaseModel):

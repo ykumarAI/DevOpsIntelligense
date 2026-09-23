@@ -4,8 +4,10 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
 )
@@ -86,8 +88,25 @@ class MonitoredResource(Base):
     identifier = Column(String, nullable=False)
     display_name = Column(String, nullable=True)
     region = Column(String, nullable=True)
+    # Optional label to group related resources together on the dashboard.
+    group_name = Column(String, nullable=True)
+    # Subset of signal keys to display for this resource. NULL = collect all.
+    collect_options = Column(JSON, nullable=True)
     enabled = Column(Boolean, default=True)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     account = relationship("AwsAccount", back_populates="resources")
+
+
+class MetricSample(Base):
+    """A single point-in-time sample of a resource's primary metric, recorded on
+    each dashboard refresh so tiles can draw a real historical trend."""
+
+    __tablename__ = "metric_samples"
+
+    id = Column(Integer, primary_key=True)
+    resource_id = Column(Integer, index=True, nullable=False)
+    metric_name = Column(String, nullable=False)
+    value = Column(Float, nullable=False)
+    collected_at = Column(DateTime, default=datetime.utcnow, index=True)

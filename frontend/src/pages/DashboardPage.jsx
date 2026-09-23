@@ -71,6 +71,100 @@ export default function DashboardPage({ accounts, settings }) {
     .filter((r) => statusFilter === "all" || r.status === statusFilter)
     .sort((a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9));
 
+  // Group tiles by group_name; preserve first-seen order, ungrouped last.
+  const groups = [];
+  const groupIndex = new Map();
+  for (const r of resources) {
+    const name = r.group_name || "";
+    if (!groupIndex.has(name)) {
+      groupIndex.set(name, groups.length);
+      groups.push({ name, items: [] });
+    }
+    groups[groupIndex.get(name)].items.push(r);
+  }
+  groups.sort((a, b) => (a.name === "" ? 1 : 0) - (b.name === "" ? 1 : 0));
+  const hasNamedGroups = groups.some((g) => g.name !== "");
+
+  const renderTile = (r) => {
+    const color = colorFor(r.resource_id);
+    const metricEntries = Object.entries(r.metrics || {}).slice(0, 3);
+    const detailEntries = Object.entries(r.details || {}).slice(0, 3);
+    return (
+      <div
+        key={r.resource_id}
+        className="tile"
+        style={{ "--c": color }}
+        onClick={() => setSelected(r)}
+      >
+        <div className="tile-head">
+          <div className="tile-id">
+            <div className="tile-icon">
+              {TYPE_ABBR[r.resource_type] || r.resource_type}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div className="tile-code">{r.identifier}</div>
+              <div className="tile-name">{r.display_name || r.identifier}</div>
+            </div>
+          </div>
+          <div className="tile-badges">
+            <span className="online">
+              <span
+                className="dot"
+                style={{
+                  background:
+                    r.status === "unknown" ? "var(--unknown)" : undefined,
+                }}
+              />
+              {r.source}
+            </span>
+            <span className={`pill ${r.status}`}>{r.status}</span>
+          </div>
+        </div>
+
+        <div className="now">
+          <span className="now-tag">NOW</span>
+          <span className="now-text">{r.summary || "—"}</span>
+        </div>
+
+        {r.history && r.history.length >= 2 ? (
+          <div className="spark-wrap">
+            <Sparkline values={r.history} color={color} />
+            {r.history_metric && (
+              <span className="spark-label">
+                {humanize(r.history_metric)} · last {r.history.length}
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="spark-empty">Collecting trend…</div>
+        )}
+
+        {metricEntries.length > 0 && (
+          <div className="tile-metrics">
+            {metricEntries.map(([k, v]) => (
+              <div className="metric" key={k}>
+                <div className="m-value">{fmt(v)}</div>
+                <div className="m-label">{humanize(k)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {detailEntries.length > 0 && (
+          <div className="tile-activity">
+            {detailEntries.map(([k, v]) => (
+              <div className="act" key={k}>
+                <span className="tick">✓</span>
+                <span className="k">{humanize(k)}:</span>
+                <span className="v">{fmt(v)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <>
       <div className="header-row">
@@ -145,79 +239,19 @@ export default function DashboardPage({ accounts, settings }) {
         <div className="empty">
           No resources yet. Add AWS resources from the “Monitored Resources” tab.
         </div>
+      ) : hasNamedGroups ? (
+        groups.map((g) => (
+          <div key={g.name || "__ungrouped"}>
+            <div className="group-header">
+              <span className="g-name">{g.name || "Ungrouped"}</span>
+              <span className="g-count">{g.items.length}</span>
+              <span className="g-line" />
+            </div>
+            <div className="grid">{g.items.map(renderTile)}</div>
+          </div>
+        ))
       ) : (
-        <div className="grid">
-          {resources.map((r) => {
-            const color = colorFor(r.resource_id);
-            const metricEntries = Object.entries(r.metrics || {}).slice(0, 3);
-            const detailEntries = Object.entries(r.details || {}).slice(0, 3);
-            return (
-              <div
-                key={r.resource_id}
-                className="tile"
-                style={{ "--c": color }}
-                onClick={() => setSelected(r)}
-              >
-                <div className="tile-head">
-                  <div className="tile-id">
-                    <div className="tile-icon">
-                      {TYPE_ABBR[r.resource_type] || r.resource_type}
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div className="tile-code">{r.identifier}</div>
-                      <div className="tile-name">
-                        {r.display_name || r.identifier}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="tile-badges">
-                    <span className="online">
-                      <span
-                        className="dot"
-                        style={{
-                          background:
-                            r.status === "unknown" ? "var(--unknown)" : undefined,
-                        }}
-                      />
-                      {r.source}
-                    </span>
-                    <span className={`pill ${r.status}`}>{r.status}</span>
-                  </div>
-                </div>
-
-                <div className="now">
-                  <span className="now-tag">NOW</span>
-                  <span className="now-text">{r.summary || "—"}</span>
-                </div>
-
-                <Sparkline seed={r.resource_id + 1} color={color} />
-
-                {metricEntries.length > 0 && (
-                  <div className="tile-metrics">
-                    {metricEntries.map(([k, v]) => (
-                      <div className="metric" key={k}>
-                        <div className="m-value">{fmt(v)}</div>
-                        <div className="m-label">{humanize(k)}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {detailEntries.length > 0 && (
-                  <div className="tile-activity">
-                    {detailEntries.map(([k, v]) => (
-                      <div className="act" key={k}>
-                        <span className="tick">✓</span>
-                        <span className="k">{humanize(k)}:</span>
-                        <span className="v">{fmt(v)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <div className="grid">{resources.map(renderTile)}</div>
       )}
 
       {selected && (

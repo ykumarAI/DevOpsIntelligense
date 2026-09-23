@@ -6,6 +6,8 @@ consistent between refreshes, while different resources look different.
 from __future__ import annotations
 
 import hashlib
+import math
+import time
 from typing import Any
 
 
@@ -180,6 +182,31 @@ MOCK_DISPATCH = {
 }
 
 
+# Primary metric trended on the dashboard tile; given a gentle time-based drift
+# so recorded history shows realistic movement instead of a flat line.
+_PRIMARY_METRIC = {
+    "ec2": "cpu_percent",
+    "ecs": "running_count",
+    "ecr": "image_count",
+    "eks": "node_count",
+    "s3": "size_gb",
+    "cloudwatch": "breaches_24h",
+}
+
+
+def _drift(identifier: str, key: str, value: Any) -> Any:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return value
+    period = 240.0  # seconds per oscillation
+    phase = (_seed(identifier + key) % 360) * math.pi / 180.0
+    wave = math.sin(time.time() / period * 2 * math.pi + phase)
+    if isinstance(value, int):
+        amp = max(1, round(abs(value) * 0.06))
+        return max(0, value + int(round(amp * wave)))
+    amp = max(1.0, abs(value) * 0.08)
+    return round(max(0.0, value + amp * wave), 1)
+
+
 def get_mock(resource_type: str, identifier: str) -> dict[str, Any]:
     fn = MOCK_DISPATCH.get(resource_type)
     if fn is None:
@@ -189,4 +216,8 @@ def get_mock(resource_type: str, identifier: str) -> dict[str, Any]:
             "metrics": {},
             "details": {},
         }
-    return fn(identifier)
+    data = fn(identifier)
+    key = _PRIMARY_METRIC.get(resource_type)
+    if key and key in data.get("metrics", {}):
+        data["metrics"][key] = _drift(identifier, key, data["metrics"][key])
+    return data
