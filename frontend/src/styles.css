@@ -212,3 +212,47 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
 .spacer { flex: 1; }
 .mono { font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; }
+
+/* Help page */
+.help-section { padding: 20px 22px; margin-bottom: 18px; max-width: 920px; }
+.help-section h2 { font-size: 17px; margin: 0 0 10px; }
+.help-h3 { font-size: 14px; font-weight: 700; margin: 18px 0 8px; color: var(--text); }
+.help-p { font-size: 13.5px; color: var(--muted); line-height: 1.6; margin: 0 0 12px; }
+.help-p.tight { margin-bottom: 4px; }
+.help-list { margin: 4px 0 0; padding-left: 20px; }
+.help-list li { font-size: 13.5px; color: var(--muted); line-height: 1.65; margin-bottom: 8px; }
+.help-list.tight { margin-top: 6px; }
+.help-list.tight li { margin-bottom: 4px; }
+.help-list b, .help-steps b { color: var(--text); }
+.help-steps { margin: 4px 0 0; padding-left: 20px; }
+.help-steps li { font-size: 13.5px; color: var(--muted); line-height: 1.7; margin-bottom: 10px; }
+
+.link-btn {
+  background: none; border: none; padding: 0; margin: 0;
+  color: var(--accent); font-size: inherit; font-weight: 600;
+  cursor: pointer; text-decoration: underline; width: auto;
+}
+.link-btn:hover { filter: brightness(1.1); }
+
+.code-block {
+  border: 1px solid var(--border); border-radius: 11px;
+  overflow: hidden; margin: 6px 0 16px; background: #1b1530;
+}
+.code-block-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 8px 12px; background: #241d3d; border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.code-block-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.code-file { color: #fff; font-size: 12.5px; font-weight: 700; font-family: "Cascadia Code", Consolas, monospace; }
+.code-desc { color: #b7b1cf; font-size: 12px; }
+.code-lang {
+  font-size: 10px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase;
+  color: var(--sidebar-active); background: rgba(124,92,255,.16); padding: 2px 8px; border-radius: 5px;
+}
+.code-block-head .btn.ghost { background: rgba(255,255,255,.08); color: #fff; border-color: rgba(255,255,255,.14); flex: none; }
+.code-block-head .btn.ghost:hover { background: rgba(255,255,255,.16); }
+.code-block-body {
+  margin: 0; padding: 14px 16px; overflow-x: auto;
+  color: #d6d2ea; font-size: 12px; line-height: 1.55;
+}
+.code-block-body code { font-family: "Cascadia Code", Consolas, monospace; white-space: pre; }

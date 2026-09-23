@@ -5,6 +5,7 @@ import AccountsPage from "./pages/AccountsPage.jsx";
 import ResourcesPage from "./pages/ResourcesPage.jsx";
 import GitLabSourcesPage from "./pages/GitLabSourcesPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
+import HelpPage from "./pages/HelpPage.jsx";
 
 const NAV = [
   { section: "Operations" },
@@ -15,6 +16,8 @@ const NAV = [
   { key: "gitlab", label: "GitLab Sources" },
   { section: "Preferences" },
   { key: "settings", label: "Settings" },
+  { section: "Help" },
+  { key: "help", label: "Help & Setup Guide" },
 ];
 
 export default function App() {
@@ -79,6 +82,7 @@ export default function App() {
         {page === "settings" && (
           <SettingsPage accounts={accounts} onSaved={setSettings} />
         )}
+        {page === "help" && <HelpPage onNavigate={setPage} />}
       </main>
     </div>
   );
