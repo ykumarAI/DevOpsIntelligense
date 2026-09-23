@@ -1,0 +1,20 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+backend/*.db
+backend/.env
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Build artifacts (PyInstaller / packaged EXE)
+dist/
+backend/dist/
+backend/build/
+backend/frontend_dist/
+
+# Editor / OS
+.DS_Store
+.vscode/

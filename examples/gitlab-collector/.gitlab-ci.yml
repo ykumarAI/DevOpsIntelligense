@@ -1,0 +1,103 @@
+# DevOps Intelligence — read-only multi-environment collector (self-managed GitLab)
+#
+# This pipeline runs INSIDE your project, where each environment's AWS access
+# already exists via OIDC assume-role. It produces one normalized
+# `devops-report-<env>.json` artifact PER ENVIRONMENT that the DevOps
+# Intelligence dashboard pulls (read-only) with a PAT.
+#
+# Nobody needs personal UAT/Prod access: the pipeline's own OIDC role does the
+# read-only Describe* calls. Point each role at a least-privilege read-only policy.
+#
+# ── How multi-environment works ──────────────────────────────────────────────
+# * `.collect_template` holds the shared logic (hidden job, never runs alone).
+# * Each environment is a small job that `extends: .collect_template` and sets
+#   its own AWS_ROLE_ARN, AWS_DEFAULT_REGION, COLLECT_ENVIRONMENT and output file.
+# * A job only runs if its role-ARN variable is defined, so you enable an
+#   environment simply by adding its CI/CD variable — no pipeline edits needed.
+# * To add another environment, copy a job block and change the 4 variables.
+#
+# ── Setup ────────────────────────────────────────────────────────────────────
+# 1. In AWS, create ONE read-only IAM role per environment, each trusted by your
+#    GitLab OIDC provider. Attach only Describe*/List*/Get* (see policy at bottom).
+# 2. Add CI/CD variables (Settings → CI/CD → Variables):
+#      GITLAB_OIDC_AUD        sts.amazonaws.com   (or your configured audience)
+#      AWS_ROLE_ARN_DEV       arn:aws:iam::<dev-acct>:role/devops-readonly
+#      AWS_ROLE_ARN_UAT       arn:aws:iam::<uat-acct>:role/devops-readonly
+#      AWS_ROLE_ARN_PROD      arn:aws:iam::<prod-acct>:role/devops-readonly
+#    (Only the environments whose variable you set will run.)
+# 3. In the dashboard → GitLab Sources, add ONE source per environment, each
+#    pointing at that environment's job name (e.g. collect:uat) and artifact
+#    file (e.g. devops-report-uat.json), with a PAT (read_api).
+
+stages:
+  - collect
+
+# ── Shared template (hidden) ─────────────────────────────────────────────────
+.collect_template:
+  stage: collect
+  image: python:3.12-slim
+  # OIDC token GitLab mints for this job; collect.py exchanges it for temp creds.
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: "$GITLAB_OIDC_AUD"
+  before_script:
+    - pip install --quiet boto3
+  script:
+    - python collect.py
+  artifacts:
+    paths:
+      - "$COLLECT_OUTPUT"
+    expire_in: 1 day
+
+# ── One job per environment (copy a block to add more) ───────────────────────
+collect:dev:
+  extends: .collect_template
+  variables:
+    COLLECT_ENVIRONMENT: "DEV"
+    AWS_DEFAULT_REGION: "us-east-1"
+    AWS_ROLE_ARN: "$AWS_ROLE_ARN_DEV"
+    COLLECT_OUTPUT: "devops-report-dev.json"
+  rules:
+    - if: '$AWS_ROLE_ARN_DEV'
+
+collect:uat:
+  extends: .collect_template
+  variables:
+    COLLECT_ENVIRONMENT: "UAT"
+    AWS_DEFAULT_REGION: "us-east-1"
+    AWS_ROLE_ARN: "$AWS_ROLE_ARN_UAT"
+    COLLECT_OUTPUT: "devops-report-uat.json"
+  rules:
+    - if: '$AWS_ROLE_ARN_UAT'
+
+collect:prod:
+  extends: .collect_template
+  variables:
+    COLLECT_ENVIRONMENT: "PROD"
+    AWS_DEFAULT_REGION: "us-east-1"
+    AWS_ROLE_ARN: "$AWS_ROLE_ARN_PROD"
+    COLLECT_OUTPUT: "devops-report-prod.json"
+  rules:
+    # Prod only on scheduled pipelines by default; adjust to taste.
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $AWS_ROLE_ARN_PROD'
+    - if: '$AWS_ROLE_ARN_PROD'
+      when: manual
+      allow_failure: true
+
+# ── Least-privilege read-only policy (attach to the role) ────────────────────
+# {
+#   "Version": "2012-10-17",
+#   "Statement": [{
+#     "Effect": "Allow",
+#     "Action": [
+#       "ec2:Describe*",
+#       "ecs:Describe*", "ecs:List*",
+#       "ecr:Describe*", "ecr:List*",
+#       "eks:Describe*", "eks:List*",
+#       "s3:ListAllMyBuckets", "s3:GetBucketLocation",
+#       "s3:GetBucketPublicAccessBlock", "s3:GetEncryptionConfiguration",
+#       "cloudwatch:Describe*", "cloudwatch:GetMetricStatistics"
+#     ],
+#     "Resource": "*"
+#   }]
+# }
