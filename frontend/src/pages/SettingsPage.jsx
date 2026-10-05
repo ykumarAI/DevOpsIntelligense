@@ -26,6 +26,7 @@ export default function SettingsPage({ accounts, onSaved }) {
           : null,
         refresh_interval_seconds: Number(form.refresh_interval_seconds),
         default_status_filter: form.default_status_filter || "all",
+        image_check_interval_seconds: Number(form.image_check_interval_seconds),
       });
       setForm(updated);
       setSaved(true);
@@ -122,6 +123,26 @@ export default function SettingsPage({ accounts, onSaved }) {
                 <option value="healthy">Healthy only</option>
                 <option value="unknown">Unknown only</option>
               </select>
+            </div>
+          </div>
+
+          <div className="field">
+            <label>Image monitor check interval (seconds)</label>
+            <input
+              type="number"
+              min={60}
+              max={86400}
+              value={form.image_check_interval_seconds ?? 1800}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  image_check_interval_seconds: e.target.value,
+                })
+              }
+            />
+            <div className="subtitle" style={{ marginTop: 6 }}>
+              How often the background scheduler evaluates production image
+              monitors (ECS → ECR → GitLab).
             </div>
           </div>
 

@@ -45,6 +45,74 @@ def fetch_report(source: GitLabSource, timeout: int = 20) -> dict[str, Any]:
     return json.loads(raw)
 
 
+def _api_get(source: GitLabSource, path: str, params: dict[str, Any] | None = None,
+             timeout: int = 20) -> Any:
+    """Call a GitLab v4 API endpoint (``path`` is relative to the project) and
+    return the parsed JSON. Raises on network/HTTP/parse errors."""
+    base = source.base_url.rstrip("/")
+    project = urllib.parse.quote(str(source.project), safe="")
+    query = f"?{urllib.parse.urlencode(params)}" if params else ""
+    url = f"{base}/api/v4/projects/{project}/{path.lstrip('/')}{query}"
+    req = urllib.request.Request(url, method="GET")
+    if source.token:
+        req.add_header("PRIVATE-TOKEN", source.token)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - user-configured host
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _sha_from_tag(image_tag: str | None) -> str | None:
+    """Extract a git-sha-looking token (7-40 hex chars) from an image tag."""
+    import re
+
+    if not image_tag:
+        return None
+    for part in re.split(r"[^0-9a-fA-F]+", image_tag):
+        if 7 <= len(part) <= 40:
+            return part
+    return None
+
+
+def find_pipeline_for_image(source: GitLabSource, image_tag: str | None,
+                            commit_sha: str | None = None) -> dict[str, Any]:
+    """Best-effort correlation of a deployed image back to the successful GitLab
+    pipeline that built it. Matches on an explicit commit SHA when available,
+    otherwise on a SHA-looking token embedded in the image tag, and finally
+    falls back to the latest successful pipeline on the configured ref.
+
+    Never raises: returns ``{"found": False, "error": ...}`` on failure."""
+    base = source.base_url.rstrip("/")
+    try:
+        sha = commit_sha or _sha_from_tag(image_tag)
+        pipelines: list[dict[str, Any]] = []
+        if sha:
+            pipelines = _api_get(source, "pipelines", {"sha": sha, "per_page": 1})
+        if not pipelines:
+            pipelines = _api_get(
+                source,
+                "pipelines",
+                {"ref": source.ref, "status": "success", "per_page": 1},
+            )
+        if not pipelines:
+            return {"found": False, "error": "no matching pipeline"}
+        p = pipelines[0]
+        pid = p.get("id")
+        detail = _api_get(source, f"pipelines/{pid}") if pid else {}
+        full_sha = detail.get("sha") or p.get("sha")
+        return {
+            "found": True,
+            "pipeline_id": pid,
+            "pipeline_url": p.get("web_url"),
+            "pipeline_status": p.get("status"),
+            "created_at": p.get("created_at"),
+            "image_tag": image_tag,
+            "commit_id": full_sha,
+            "commit_url": f"{base}/-/commit/{full_sha}" if full_sha else None,
+            "ref": p.get("ref"),
+        }
+    except Exception as exc:  # noqa: BLE001 - correlation is best-effort
+        return {"found": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
 def _normalize_status(value: Any) -> str:
     v = str(value or "").lower()
     return v if v in _VALID_STATUS else "unknown"

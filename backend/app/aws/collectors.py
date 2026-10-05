@@ -36,6 +36,13 @@ def _session(mode: str, profile_name: str | None, region: str,
     return boto3.Session(region_name=region)
 
 
+def build_session(mode: str, profile_name: str | None, region: str,
+                  access_key_id: str | None = None, secret_access_key: str | None = None,
+                  session_token: str | None = None):
+    """Public accessor for a cached boto3 session (used by image monitoring)."""
+    return _session(mode, profile_name, region, access_key_id, secret_access_key, session_token)
+
+
 def _status_from_metric(value: float, warn: float, crit: float) -> str:
     if value >= crit:
         return "critical"
@@ -198,6 +205,108 @@ def collect_cloudwatch(session, identifier: str) -> dict[str, Any]:
             "metric": alarm.get("MetricName"),
             "threshold": alarm.get("Threshold"),
         },
+    }
+
+
+def _split_image_ref(image: str) -> tuple[str | None, str | None]:
+    """Split an image reference into (tag, digest). Handles both
+    ``repo:tag`` and ``repo@sha256:...`` and ``repo:tag@sha256:...`` forms."""
+    tag: str | None = None
+    digest: str | None = None
+    ref = image
+    if "@" in ref:
+        ref, digest = ref.split("@", 1)
+    # Only treat the last colon segment as a tag if it is not part of host:port.
+    if ":" in ref:
+        candidate = ref.rsplit(":", 1)[1]
+        if "/" not in candidate:
+            tag = candidate
+    return tag, digest
+
+
+def get_ecs_deployed_image(session, cluster: str, service: str) -> dict[str, Any]:
+    """Resolve the container image a production ECS service is currently running
+    by reading its active task definition's first container."""
+    ecs = session.client("ecs")
+    resp = ecs.describe_services(cluster=cluster, services=[service])
+    services = resp.get("services", [])
+    if not services:
+        return {"found": False, "error": "service not found"}
+    svc = services[0]
+    task_def_arn = svc.get("taskDefinition")
+    if not task_def_arn:
+        return {"found": False, "error": "no task definition on service"}
+    td = ecs.describe_task_definition(taskDefinition=task_def_arn).get("taskDefinition", {})
+    containers = td.get("containerDefinitions", [])
+    image = containers[0].get("image") if containers else None
+    tag, digest = _split_image_ref(image) if image else (None, None)
+    return {
+        "found": True,
+        "cluster": cluster,
+        "service": service,
+        "task_definition": task_def_arn.split("/")[-1],
+        "image": image,
+        "image_tag": tag,
+        "image_digest": digest,
+        "desired_count": svc.get("desiredCount"),
+        "running_count": svc.get("runningCount"),
+    }
+
+
+def _lifecycle_retained_count(ecr, repository: str) -> int | None:
+    """Return the largest ``countNumber`` from any ``imageCountMoreThan`` rule in
+    the repository's lifecycle policy, i.e. how many images ECR retains."""
+    import json as _json
+
+    try:
+        resp = ecr.get_lifecycle_policy(repositoryName=repository)
+    except Exception:  # noqa: BLE001 - no policy configured
+        return None
+    try:
+        policy = _json.loads(resp.get("lifecyclePolicyText", "{}"))
+    except Exception:  # noqa: BLE001
+        return None
+    counts: list[int] = []
+    for rule in policy.get("rules", []):
+        sel = rule.get("selection", {})
+        if sel.get("countType") == "imageCountMoreThan":
+            try:
+                counts.append(int(sel.get("countNumber")))
+            except (TypeError, ValueError):
+                continue
+    return max(counts) if counts else None
+
+
+def get_ecr_inventory(session, repository: str, tag_prefix: str | None = None) -> dict[str, Any]:
+    """Return the repository's images (newest first) filtered by an optional tag
+    prefix, plus the retained-image count implied by the lifecycle policy."""
+    ecr = session.client("ecr")
+    paginator = ecr.get_paginator("describe_images")
+    images: list[dict[str, Any]] = []
+    for page in paginator.paginate(repositoryName=repository):
+        images.extend(page.get("imageDetails", []))
+
+    def _matches(img: dict[str, Any]) -> bool:
+        if not tag_prefix:
+            return True
+        return any(str(t).startswith(tag_prefix) for t in img.get("imageTags", []))
+
+    filtered = [i for i in images if _matches(i)]
+    # Newest first; images missing a push time sort oldest to avoid mixed-type
+    # comparisons between datetimes and a numeric sentinel.
+    from datetime import datetime, timezone
+
+    def _pushed(img: dict[str, Any]):
+        ts = img.get("imagePushedAt")
+        return ts if hasattr(ts, "timestamp") else datetime.min.replace(tzinfo=timezone.utc)
+
+    filtered.sort(key=_pushed, reverse=True)
+    retained = _lifecycle_retained_count(ecr, repository)
+    return {
+        "repository": repository,
+        "images": filtered,
+        "total_images": len(filtered),
+        "retained": retained,
     }
 
 

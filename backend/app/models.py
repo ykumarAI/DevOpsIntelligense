@@ -50,6 +50,8 @@ class AppSetting(Base):
     default_account_id = Column(Integer, nullable=True)
     refresh_interval_seconds = Column(Integer, nullable=False, default=20)
     default_status_filter = Column(String, nullable=True)  # all | healthy | warning | critical | unknown
+    # How often the background scheduler evaluates image monitors (seconds).
+    image_check_interval_seconds = Column(Integer, nullable=False, default=1800)
 
 
 class GitLabSource(Base):
@@ -110,3 +112,66 @@ class MetricSample(Base):
     metric_name = Column(String, nullable=False)
     value = Column(Float, nullable=False)
     collected_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class ImageMonitor(Base):
+    """Configuration for a production application whose deployed container image
+    is tracked across ECS -> ECR -> GitLab. The monitor correlates the image a
+    production ECS service is running with its position in the ECR repository's
+    lifecycle retention window and the GitLab pipeline/commit that built it, so
+    the team is warned before the image is pruned out of ECR."""
+
+    __tablename__ = "image_monitors"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)                 # e.g. "orders-service (prod)"
+    application = Column(String, nullable=False)           # logical app/service name
+    # AWS account whose credentials are used for the ECS/ECR calls. NULL = mock.
+    account_id = Column(
+        Integer, ForeignKey("aws_accounts.id", ondelete="SET NULL"), nullable=True
+    )
+    ecs_cluster = Column(String, nullable=False)           # prod ECS cluster
+    ecs_service = Column(String, nullable=False)           # prod ECS service
+    ecr_repository = Column(String, nullable=False)        # ECR repo holding the image
+    region = Column(String, nullable=True)
+    # Optional GitLab source used to correlate the build pipeline/commit.
+    gitlab_source_id = Column(
+        Integer, ForeignKey("gitlab_sources.id", ondelete="SET NULL"), nullable=True
+    )
+    # Only consider images whose tag starts with this prefix (NULL = all).
+    image_tag_prefix = Column(String, nullable=True)
+    # Override the retained-image count; NULL = read it from the lifecycle policy.
+    retention_count = Column(Integer, nullable=True)
+    # Warn when (retained - position) <= this many slots remain before pruning.
+    warn_threshold = Column(Integer, nullable=False, default=3)
+    # Optional Slack/Teams-compatible incoming webhook for notifications.
+    webhook_url = Column(Text, nullable=True)
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Snapshot of the most recent evaluation for quick listing.
+    last_checked_at = Column(DateTime, nullable=True)
+    last_risk = Column(String, nullable=True)              # healthy|warning|critical|unknown
+    last_position = Column(Integer, nullable=True)
+    last_result = Column(JSON, nullable=True)
+
+
+class ImageAlert(Base):
+    """A recorded notification raised for an image monitor, used both for
+    traceability and to de-duplicate repeat notifications at the same risk."""
+
+    __tablename__ = "image_alerts"
+
+    id = Column(Integer, primary_key=True)
+    monitor_id = Column(
+        Integer, ForeignKey("image_monitors.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    risk_level = Column(String, nullable=False)            # warning | critical
+    position = Column(Integer, nullable=True)
+    retention_count = Column(Integer, nullable=True)
+    image_tag = Column(String, nullable=True)
+    image_digest = Column(String, nullable=True)
+    commit_id = Column(String, nullable=True)
+    message = Column(Text, nullable=False)
+    notified = Column(Boolean, default=False)              # webhook delivery succeeded
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)

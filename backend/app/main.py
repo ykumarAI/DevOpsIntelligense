@@ -8,8 +8,16 @@ from sqlalchemy import inspect, text
 
 from .config import settings
 from .database import Base, SessionLocal, engine
-from .models import AwsAccount, MonitoredResource
-from .routers import accounts, gitlab, monitor, resources, settings as settings_router
+from .models import AwsAccount, ImageMonitor, MonitoredResource
+from .routers import (
+    accounts,
+    gitlab,
+    image_monitor,
+    monitor,
+    resources,
+    settings as settings_router,
+)
+from . import scheduler
 
 
 def _static_dir() -> Path | None:
@@ -36,6 +44,9 @@ def _ensure_schema() -> None:
         "monitored_resources": {
             "group_name": "VARCHAR",
             "collect_options": "JSON",
+        },
+        "app_settings": {
+            "image_check_interval_seconds": "INTEGER DEFAULT 1800",
         },
     }
     with engine.begin() as conn:
@@ -66,6 +77,7 @@ app.include_router(resources.router)
 app.include_router(monitor.router)
 app.include_router(settings_router.router)
 app.include_router(gitlab.router)
+app.include_router(image_monitor.router)
 
 
 @app.get("/api/health")
@@ -115,5 +127,32 @@ def seed_demo_data() -> None:
                 )
             )
         db.commit()
+
+        # Seed a demo image monitor so the ECS -> ECR -> GitLab chain is visible
+        # on first run without any live AWS access.
+        db.add(
+            ImageMonitor(
+                name="orders-service (prod)",
+                application="orders-service",
+                account_id=account.id,
+                ecs_cluster="prod-cluster",
+                ecs_service="orders-service",
+                ecr_repository="orders-service",
+                region="us-east-1",
+                warn_threshold=3,
+                enabled=True,
+            )
+        )
+        db.commit()
     finally:
         db.close()
+
+
+@app.on_event("startup")
+def start_scheduler() -> None:
+    scheduler.start()
+
+
+@app.on_event("shutdown")
+def stop_scheduler() -> None:
+    scheduler.stop()

@@ -50,6 +50,7 @@ class SettingsBase(BaseModel):
     default_status_filter: Optional[
         Literal["all", "healthy", "warning", "critical", "unknown"]
     ] = "all"
+    image_check_interval_seconds: int = Field(default=1800, ge=60, le=86400)
 
 
 class SettingsUpdate(BaseModel):
@@ -58,6 +59,7 @@ class SettingsUpdate(BaseModel):
     default_status_filter: Optional[
         Literal["all", "healthy", "warning", "critical", "unknown"]
     ] = None
+    image_check_interval_seconds: Optional[int] = Field(default=None, ge=60, le=86400)
 
 
 class SettingsOut(SettingsBase):
@@ -174,3 +176,123 @@ class DashboardSummary(BaseModel):
     by_type: dict[str, int]
     accounts: int
     resources: list[ResourceStatus]
+
+
+# ---------- Image Monitor (ECS -> ECR -> GitLab) ----------
+RiskLevel = Literal["healthy", "warning", "critical", "unknown"]
+
+
+class ImageMonitorBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    application: str = Field(..., min_length=1, max_length=120)
+    account_id: Optional[int] = None
+    ecs_cluster: str = Field(..., min_length=1)
+    ecs_service: str = Field(..., min_length=1)
+    ecr_repository: str = Field(..., min_length=1)
+    region: Optional[str] = None
+    gitlab_source_id: Optional[int] = None
+    image_tag_prefix: Optional[str] = None
+    retention_count: Optional[int] = Field(default=None, ge=1, le=10000)
+    warn_threshold: int = Field(default=3, ge=1, le=1000)
+    webhook_url: Optional[str] = None
+    enabled: bool = True
+
+
+class ImageMonitorCreate(ImageMonitorBase):
+    pass
+
+
+class ImageMonitorUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    application: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    account_id: Optional[int] = None
+    ecs_cluster: Optional[str] = None
+    ecs_service: Optional[str] = None
+    ecr_repository: Optional[str] = None
+    region: Optional[str] = None
+    gitlab_source_id: Optional[int] = None
+    image_tag_prefix: Optional[str] = None
+    retention_count: Optional[int] = Field(default=None, ge=1, le=10000)
+    warn_threshold: Optional[int] = Field(default=None, ge=1, le=1000)
+    webhook_url: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class ImageMonitorOut(ImageMonitorBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    has_webhook: bool = False
+    last_checked_at: Optional[datetime] = None
+    last_risk: Optional[RiskLevel] = None
+    last_position: Optional[int] = None
+
+
+# --- Evaluation result: the correlated ECS -> ECR -> GitLab chain ---
+class EcsDeployment(BaseModel):
+    found: bool = False
+    cluster: Optional[str] = None
+    service: Optional[str] = None
+    task_definition: Optional[str] = None
+    image: Optional[str] = None          # full image reference
+    image_tag: Optional[str] = None
+    image_digest: Optional[str] = None
+    desired_count: Optional[int] = None
+    running_count: Optional[int] = None
+    error: Optional[str] = None
+
+
+class EcrPosition(BaseModel):
+    found: bool = False
+    repository: Optional[str] = None
+    total_images: Optional[int] = None
+    retained: Optional[int] = None         # lifecycle retention window size
+    position: Optional[int] = None         # 1 = newest; higher = older/closer to pruning
+    slots_remaining: Optional[int] = None  # retained - position
+    pushed_at: Optional[str] = None
+    lifecycle_source: Optional[str] = None  # "policy" | "override" | "default"
+    error: Optional[str] = None
+
+
+class GitLabBuild(BaseModel):
+    found: bool = False
+    pipeline_id: Optional[int] = None
+    pipeline_url: Optional[str] = None
+    pipeline_status: Optional[str] = None
+    created_at: Optional[str] = None
+    image_tag: Optional[str] = None
+    commit_id: Optional[str] = None
+    commit_url: Optional[str] = None
+    ref: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ImageChainResult(BaseModel):
+    monitor_id: int
+    name: str
+    application: str
+    source: Literal["mock", "aws"] = "mock"
+    risk: RiskLevel = "unknown"
+    summary: str = ""
+    checked_at: datetime
+    ecs: EcsDeployment
+    ecr: EcrPosition
+    gitlab: GitLabBuild
+    error: Optional[str] = None
+
+
+class ImageAlertOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    monitor_id: int
+    risk_level: RiskLevel
+    position: Optional[int] = None
+    retention_count: Optional[int] = None
+    image_tag: Optional[str] = None
+    image_digest: Optional[str] = None
+    commit_id: Optional[str] = None
+    message: str
+    notified: bool = False
+    created_at: datetime

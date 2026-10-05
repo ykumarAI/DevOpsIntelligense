@@ -55,4 +55,19 @@ export const api = {
     request(`/gitlab/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteGitlab: (id) => request(`/gitlab/${id}`, { method: "DELETE" }),
   previewGitlab: (id) => request(`/gitlab/${id}/preview`, { method: "POST" }),
+
+  // image monitors (ECS -> ECR -> GitLab)
+  listImageMonitors: () => request("/image-monitors"),
+  createImageMonitor: (data) =>
+    request("/image-monitors", { method: "POST", body: JSON.stringify(data) }),
+  updateImageMonitor: (id, data) =>
+    request(`/image-monitors/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteImageMonitor: (id) =>
+    request(`/image-monitors/${id}`, { method: "DELETE" }),
+  previewImageMonitor: (id) => request(`/image-monitors/${id}/preview`),
+  checkImageMonitor: (id) =>
+    request(`/image-monitors/${id}/check`, { method: "POST" }),
+  checkAllImageMonitors: () =>
+    request("/image-monitors/check", { method: "POST" }),
+  imageMonitorAlerts: (id) => request(`/image-monitors/${id}/alerts`),
 };

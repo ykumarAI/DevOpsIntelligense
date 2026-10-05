@@ -3,6 +3,7 @@ import { api } from "./api.js";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import AccountsPage from "./pages/AccountsPage.jsx";
 import ResourcesPage from "./pages/ResourcesPage.jsx";
+import ImageMonitorPage from "./pages/ImageMonitorPage.jsx";
 import GitLabSourcesPage from "./pages/GitLabSourcesPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
 import HelpPage from "./pages/HelpPage.jsx";
@@ -11,6 +12,7 @@ const NAV = [
   { section: "Operations" },
   { key: "dashboard", label: "Dashboard" },
   { key: "resources", label: "Monitored Resources" },
+  { key: "images", label: "Image Monitoring" },
   { section: "Sources" },
   { key: "accounts", label: "AWS Accounts" },
   { key: "gitlab", label: "GitLab Sources" },
@@ -75,6 +77,9 @@ export default function App() {
           <DashboardPage accounts={accounts} settings={settings} />
         )}
         {page === "resources" && <ResourcesPage accounts={accounts} />}
+        {page === "images" && (
+          <ImageMonitorPage accounts={accounts} />
+        )}
         {page === "accounts" && (
           <AccountsPage accounts={accounts} onChange={loadAccounts} />
         )}
